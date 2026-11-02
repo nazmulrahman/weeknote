@@ -1,0 +1,33 @@
+import assert from 'node:assert/strict';
+import { DatabaseSync } from 'node:sqlite';
+import { readFileSync } from 'node:fs';
+import { pbkdf2Sync, createHash } from 'node:crypto';
+import { recoverAdmin, listAdmins } from './recover-admin-lib.mjs';
+const db = new DatabaseSync(':memory:');
+for (const file of ['0000_premium_virginia_dare.sql','0001_acoustic_sasquatch.sql']) db.exec(readFileSync(new URL('../drizzle/'+file,import.meta.url),'utf8'));
+db.prepare("INSERT INTO members(id,name,role,seen) VALUES ('admin','Admin','manager',0),('member','Member','member',0)").run();
+db.prepare("INSERT INTO accounts(member,username,password_hash) VALUES ('admin','admin','old'),('member','member','old')").run();
+db.prepare("INSERT INTO login_sessions(hash,member,expires) VALUES ('old-session','admin',9999999999999)").run();
+db.prepare("INSERT INTO sessions(id,task,member,start) VALUES ('focus','task','admin',1)").run();
+db.prepare("INSERT INTO tasks(id,title,owner,assignees,week,progress,created) VALUES ('task','Preserve this task','admin','[\"admin\"]','2026-10-25',65,1)").run();
+const key='user:'+createHash('sha256').update('admin').digest('hex');
+db.prepare('INSERT INTO login_attempts(key,attempts,until) VALUES (?,5,9999999999999)').run(key);
+assert.deepEqual(listAdmins(db).map(a=>a.username),['admin']);
+assert.throws(()=>recoverAdmin(db,'admin',''),/non-empty/);
+assert.throws(()=>recoverAdmin(db,'member','a'),/not an admin/);
+assert.equal(db.prepare("SELECT password_hash FROM accounts WHERE member='member'").get().password_hash,'old');
+for (const password of ['a','x'.repeat(1024),'এক']) {
+  assert.equal(recoverAdmin(db,'ADMIN',password),'admin');
+  const stored=db.prepare("SELECT password_hash FROM accounts WHERE member='admin'").get().password_hash;
+  const parts=stored.split('$');
+  assert.equal(parts[0],'pbkdf2-sha256');
+  assert.equal(parts[3],pbkdf2Sync(password,Buffer.from(parts[2],'hex'),100000,32,'sha256').toString('hex'));
+  assert.notEqual(stored,password);
+}
+assert.equal(db.prepare('SELECT COUNT(*) AS n FROM login_sessions').get().n,0);
+assert.equal(db.prepare('SELECT COUNT(*) AS n FROM login_attempts').get().n,0);
+assert.ok(db.prepare("SELECT end FROM sessions WHERE id='focus'").get().end);
+assert.equal(db.prepare("SELECT progress FROM tasks WHERE id='task'").get().progress,65);
+assert.equal(db.prepare('SELECT COUNT(*) AS n FROM admin_events').get().n,3);
+db.close();
+console.log('PASS: local admin recovery, single-character/long/Unicode passwords, hashing, session revocation, cleared lockout, paused timer, preserved work, and no member-account recovery.');

@@ -1,0 +1,48 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1793278380059,
+      "tag": "0000_premium_virginia_dare",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1793281157385,
+      "tag": "0001_acoustic_sasquatch",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1793500000000,
+      "tag": "0002_workspace_safety",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1793600000000,
+      "tag": "0003_board_messages",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1793601000000,
+      "tag": "0004_note_canvas",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1793602000000,
+      "tag": "0005_time_scores",
+      "breakpoints": true
+    }
+  ]
+}

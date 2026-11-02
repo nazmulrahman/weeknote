@@ -1,0 +1,34 @@
+import assert from 'node:assert/strict';
+const origin='http://127.0.0.1:5174';
+let r=await fetch(origin+'/api/workspace');assert.equal(r.status,401,'anonymous requests rejected');await r.arrayBuffer();
+r=await fetch(origin+'/api/auth',{method:'POST',headers:{origin,'Content-Type':'application/json'},body:JSON.stringify({action:'login',username:'qa_admin',password:'Local-QA-only-Admin-2026!'})});
+const cookie=r.headers.get('set-cookie')?.split(';')[0];assert.ok(cookie,'isolated QA admin cookie');await r.arrayBuffer();
+const request=async(p)=>{const r=await fetch(origin+'/api/workspace',{method:'POST',headers:{cookie,'Content-Type':'application/json',origin},body:JSON.stringify(p)});return {status:r.status,body:await r.json()};};
+const load=async()=>{const r=await fetch(origin+'/api/workspace',{headers:{cookie}});assert.equal(r.status,200);return r.json();};
+let d=await load();const me=d.me;let a,b;
+try{
+ const make=async(title)=>{const result=await request({action:'create',title,project:'Workflow test',owner:me,assignees:[me],week:'2026-10-25',deadline:'2026-10-30',estimate:1,priority:'High',notes:'Disposable local workflow test'});assert.equal(result.status,200);return (await load()).tasks.find(t=>t.title===title);};
+ a=await make('QA session A');b=await make('QA session B');
+ assert.equal((await request({action:'start',id:a.id,minutes:0})).status,400,'reject invalid budget');
+ assert.equal((await request({action:'start',id:a.id,minutes:1})).status,200);
+ assert.equal((await request({action:'start',id:b.id,minutes:1})).status,200);
+ d=await load();assert.equal(d.sessions.filter(s=>s.member===me&&s.end===null).length,1,'only one running timer');assert.equal(d.sessions.find(s=>s.member===me&&s.end===null).task,b.id,'switching tasks pauses previous timer');
+ assert.equal((await request({action:'pause',id:b.id})).status,200);
+ assert.equal((await request({action:'progress',id:b.id,revision:b.revision,progress:55})).status,200);
+ assert.equal((await request({action:'progress',id:b.id,revision:b.revision,progress:75})).status,409,'reject stale progress');
+ b=(await load()).tasks.find(t=>t.id===b.id);assert.equal(b.progress,55,'progress persisted');
+ assert.equal((await request({action:'start',id:b.id,minutes:1})).status,200);
+ assert.equal((await request({action:'progress',id:b.id,revision:b.revision,progress:100})).status,200);
+ d=await load();b=d.tasks.find(t=>t.id===b.id);assert.equal(b.progress,100);assert.ok(b.completed);assert.equal(d.sessions.filter(s=>s.task===b.id&&s.end===null).length,0,'completion closes task timers');
+ assert.equal((await request({action:'start',id:b.id,minutes:1})).status,400,'cannot start completed task');
+ const end=Date.now()-86400000,start=end-3600000;
+ assert.equal((await request({action:'manual',id:a.id,start,end,note:'Test manual time'})).status,200);
+ assert.equal((await request({action:'manual',id:a.id,start,end,note:'Duplicate'})).status,409,'no overlapping time entries');
+ const s=(await load()).sessions.find(s=>s.task===a.id&&s.note==='Test manual time');
+ assert.equal((await request({action:'adjust',id:a.id,session:s.id,end:start+1800000,note:'Correct to 30 minutes'})).status,200);
+ assert.equal((await request({action:'block',id:a.id,revision:a.revision,reason:'Waiting for a part'})).status,200);
+ assert.equal((await request({action:'start',id:a.id,minutes:1})).status,400,'cannot start blocked task');
+ assert.equal((await request({action:'availability',value:'Away'})).status,200);
+ assert.equal((await request({action:'availability',value:'Available'})).status,200);
+ console.log('PASS: sign-in, validation, create, timers, switching, pause, progress, stale-update protection, completion, manual time, overlap detection, corrections, blockers, availability.');
+}finally{for(const t of [a,b])if(t)await request({action:'delete',id:t.id});}
